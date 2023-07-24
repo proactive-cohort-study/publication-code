@@ -1,0 +1,590 @@
+---
+title: "APIM_DyadicCoping"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r include=FALSE}
+
+# load packages
+library(tidyverse)
+library(rstatix)
+library(apaTables)
+library(reshape)
+library(ppcor)
+library(coin)
+library(lavaan)
+library(semPlot)
+library(semptools)
+library(semTools)
+library(semTable)
+library(psych)
+library(Hmisc)
+
+# read in data frame
+df_dyadic <- read.csv("20230104_PROactive_DyadicCoping_n239.csv")
+
+# check df
+summary(df_dyadic)
+
+# change variables to factors
+df_dyadic$PatientID_Reine <- as.factor(df_dyadic$PatientID_Reine)
+df_dyadic$diseasegroup <- as.factor(df_dyadic$diseasegroup)
+df_dyadic$ChildaboutwhichParent <- as.factor(df_dyadic$ChildaboutwhichParent)
+df_dyadic$age_group <- as.factor(df_dyadic$age_group)
+df_dyadic$sex_c <- as.factor(df_dyadic$sex_c)
+df_dyadic$sex_p <- as.factor(df_dyadic$sex_p)
+
+
+# create new variable to filter out children who filled out survey about other parent
+df_dyadic <- df_dyadic %>%
+  mutate(parentmatch = case_when(ChildaboutwhichParent == "1" & sex_p == "1"  ~ "1",
+                                 ChildaboutwhichParent == "2" & sex_p == "0" ~ "1",
+                                ChildaboutwhichParent == "1" & sex_p == "0" ~ "0",
+                                ChildaboutwhichParent == "2" & sex_p == "1" ~ "0"))
+
+# turn new variable into factor
+df_dyadic$parentmatch <- as.factor(df_dyadic$parentmatch)
+
+# check number of 0's and 1's on new variable
+summary(df_dyadic$parentmatch) #
+
+# create df without mismatches (0's)
+df_excl <- df_dyadic %>% filter(parentmatch==1)
+```
+
+```{r include=FALSE}
+# get summary statistics to see which items are complete cases
+df_dyadic %>%
+  get_summary_stats(type = "mean_sd") # 197 for cNC2_p, cPO2_p, EO2_p, NC2_p
+# 187 for NC2_c, pEO2_c, pNC2_c, PO2_c
+
+```
+
+```{r include=FALSE}
+# create df including only 12 items version of survey
+df_12_excl <-dplyr::select(df_excl, -"cNC2_p"	,-"cPO2_p",-"EO2_p",-"NC2_c",-"NC2_p",-"pEO2_c",-"pNC2_c",-"PO2_c") # 239 dyads for 12 items version
+
+# create df with 16 items
+df_16 <-df_excl[complete.cases(df_excl[ , c('EO2_p','PO2_c')]), ] # 187 dyads for 16 items version
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# 1. Gender, mean age, disease groups
+
+# full sample
+summary(df_12_excl$sex_c) # 0 = girls, 1 = boys
+summary(df_12_excl$sex_p) # 0 = mothers, 1 = fathers
+
+df_12_excl %>%  summarise_at(vars("age_c","age_p"), funs(mean,sd), na.rm=TRUE)
+summary(df_12_excl$age_c) # for range
+summary(df_12_excl$cagegroup)# for groups
+
+summary(df_12_excl$diseasegroup)
+```
+
+```{r eval=FALSE, include=FALSE}
+# 187 dyads sample
+# summary(df_16$sex_c) # 118 girls, 69 boys
+# summary(df_16$sex_p) # 168 mothers, 19 fathers
+
+# df_16 %>% summarise_at(vars("age_c","age_p"), funs(mean,sd), na.rm=TRUE) # children 15.60 (sd = 2.37), parents 47.61 (sd = 5.22)
+
+# summary(df_16$diseasegroup) # 0 = 8, 1 = 54, 2 = 1, 3 = 86, 4 = 33, 5 = 5
+```
+
+```{r include=FALSE}
+# check correlations between items to see if we can aggregate the items
+# cor.test(df_12_excl$SC1_c,df_12_excl$SC2_c,method="spearman")
+# cor.test(df_12_excl$SC1_p,df_12_excl$SC2_p,method="spearman")
+# cor.test(df_12_excl$pSC1_c,df_12_excl$pSC2_c,method="spearman")
+# cor.test(df_12_excl$cSC1_p,df_12_excl$cSC2_p,method="spearman")
+
+# create mean scores of stress communication
+# for children
+df_12_excl$SCmean_c <- (df_12_excl$SC1_c + df_12_excl$SC2_c)/2
+df_12_excl$pSCmean_c <- (df_12_excl$pSC1_c + df_12_excl$pSC2_c)/2
+
+# for parents
+df_12_excl$SCmean_p <- (df_12_excl$SC1_p + df_12_excl$SC2_p)/2
+df_12_excl$cSCmean_p <- (df_12_excl$cSC1_p + df_12_excl$cSC2_p)/2
+
+# to decide between 12 or 16 item version, checking correlations between items
+# problem-oriented
+cor.test(df_16$PO1_c,df_16$PO2_c,method="spearman") # 0.36
+cor.test(df_16$PO1_p,df_16$PO2_p,method="spearman") # 0.39
+# emotion-oriented
+cor.test(df_16$EO1_c,df_16$EO2_c,method="spearman") # 0.64
+cor.test(df_16$EO1_p,df_16$EO2_p,method="spearman") # 0.55
+# negative
+cor.test(df_16$NC1_c,df_16$NC2_c,method="spearman") # 0.25
+cor.test(df_16$NC1_p,df_16$NC2_p,method="spearman") # 0.31
+# -> quite low, so dont build mean scores and use 12 items version instead
+
+# create df only with relevant study variables
+df_12_excl <- dplyr::select(df_12_excl, "PatientID_Reine","diseasegroup","age_c","age_group","age_p","sex_c","sex_p","SCmean_c","SC1_c","SC1_p","SC2_c","SC2_p","PO1_c","EO1_c","NC1_c","pSCmean_c","pPO1_c","pEO1_c","pNC1_c","SCmean_p","PO1_p","EO1_p","NC1_p","cSCmean_p","cPO1_p","cEO1_p","cNC1_p")
+
+# rename variables to be consistent between child and parent
+df_12_excl<- dplyr::rename(df_12_excl,cagegroup = age_group,SC_c = SCmean_c, PO_c=PO1_c,EO_c=EO1_c,NC_c=NC1_c,pSC_c=pSCmean_c,pPO_c=pPO1_c,pEO_c=pEO1_c,pNC_c=pNC1_c,SC_p=SCmean_p,PO_p=PO1_p,EO_p=EO1_p,NC_p=NC1_p,pSC_p=cSCmean_p,pPO_p=cPO1_p,pEO_p=cEO1_p,pNC_p=cNC1_p)
+
+# create long df for analysis
+df_12_long_excl <- reshape(df_12_excl, idvar = c('PatientID_Reine'), varying = list( c("age_c", "age_p"), c("sex_c", "sex_p"),c("SC_c","SC_p"),c("SC1_c","SC1_p"),c("SC2_c","SC2_p"),c("PO_c","PO_p"),c("EO_c","EO_p"),c("NC_c","NC_p"),c("pSC_c","pSC_p"),c("pPO_c","pPO_p"),c("pEO_c","pEO_p"),c("pNC_c","pNC_p")), timevar = 'person', v.names = c('age','sex','SC','SC1','SC2','PO','EO','NC','pSC','pPO','pEO','pNC'), direction = 'long')
+
+# save df to compare with online lavaan results
+#write.csv(df_12_excl,"df_12_excl.csv")
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# 2. Means + SDs of variables of interest
+
+df_12_excl %>% summarise_at(vars("SC_c","SC_p", "pNC_c","pNC_p", "pEO_c", "pEO_p", "pPO_c", "pPO_p"), funs(mean,sd), na.rm=TRUE)
+```
+
+```{r echo=TRUE}
+# 2. Spearman's correlation between variables of interest
+df_cor <- df_12_excl %>% dplyr::select(SC_c,SC_p,pNC_c,pNC_p,pEO_c,pEO_p,pPO_c, pPO_p) %>% as.matrix() %>% rcorr(type="spearman")
+df_cor
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, echo=FALSE}
+# 3. Partial spearmans correlation, controlling for childrens age
+
+# correlations without p-values
+df_12_excl %>% psych::partial.r(c("SC_c","SC_p","pNC_c","pNC_p","pEO_c","pEO_p","pPO_c", "pPO_p"), c("age_c"), method="spearman")
+
+# define function for p-values and CI's
+pcor_ci.test <-
+function (x, y, z, method = c("pearson", "kendall", "spearman"), conf.level = 0.95, ...) {
+    d1 <- deparse(substitute(x))
+    d2 <- deparse(substitute(y))
+    d3 <- deparse(substitute(z))
+    data.name <- paste0(d1, " and ", d2, "; controlling: ", d3)
+    method <- match.arg(method)
+    Method <- paste0("Partial correlation (", method, ")")
+    alternative <- "true partial correlation is not equal to 0"
+
+    x <- as.vector(x)
+    y <- as.vector(y)
+    z <- as.data.frame(z)
+    xyz <- data.frame(x, y, z)
+    pcor <- ppcor::pcor(xyz, method = method)
+    estimate <- pcor$est[1, 2]
+    p.value <- pcor$p.value[1, 2]
+    parameter <- c(n = pcor$n, gp = pcor$gp)
+    statistic <- c(Stat = pcor$statistic[1, 2])
+
+    fit1 <- lm(x ~ z, data = xyz)
+    fit2 <- lm(y ~ z, data = xyz)
+    cortest <- cor.test(resid(fit1), resid(fit2), method = method, conf.level = conf.level, ...)
+    ci <- cortest$conf.int
+
+    ht <- list(
+        statistic = statistic,
+        parameter = parameter,
+        p.value = p.value,
+        estimate = c(partial.cor = estimate),
+        alternative = alternative,
+        method = Method,
+        data.name = data.name,
+        conf.int = ci
+    )
+    class(ht) <- "htest"
+    ht
+}
+
+# calculate partial correlations for each combination of variables
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$SC_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$pNC_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$pNC_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$pEO_c,df_12_excl[,c("age_c")],method="spearman")
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$pEO_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$pPO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_c,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+
+pcor_ci.test(df_12_excl$SC_p,df_12_excl$pNC_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_p,df_12_excl$pNC_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_p,df_12_excl$pEO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_p,df_12_excl$pEO_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_p,df_12_excl$pPO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$SC_p,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+
+pcor_ci.test(df_12_excl$pNC_c,df_12_excl$pNC_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_c,df_12_excl$pEO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_c,df_12_excl$pEO_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_c,df_12_excl$pPO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_c,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+
+pcor_ci.test(df_12_excl$pNC_p,df_12_excl$pEO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_p,df_12_excl$pEO_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_p,df_12_excl$pPO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pNC_p,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+
+pcor_ci.test(df_12_excl$pEO_c,df_12_excl$pEO_p,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pEO_c,df_12_excl$pPO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pEO_c,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+
+pcor_ci.test(df_12_excl$pEO_p,df_12_excl$pPO_c,df_12_excl[,c("age_c")], method="spearman")
+pcor_ci.test(df_12_excl$pEO_p,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+
+pcor_ci.test(df_12_excl$pPO_c,df_12_excl$pPO_p,df_12_excl[,c("age_c")], method="spearman")
+```
+
+```{r echo=FALSE}
+# 4. Means, SD and MANOVA of mean differences between disease groups (chronic disease vs unexplained symptoms)
+
+# create new grouping variable of disease groups 1 = chronic, 2 = unexplained symptoms
+df_12_excl <- df_12_excl %>%
+  mutate(diseasegroup_grouping = case_when(diseasegroup == "0"  ~ "1",
+                                 diseasegroup == "1"  ~ "1",
+                                diseasegroup == "2" ~ "1",
+                                diseasegroup == "4" ~ "1",
+                                diseasegroup == "5" ~ "1",
+                                diseasegroup == "3" ~ "2"))
+
+# turn new variable into factor
+df_12_excl$diseasegroup_grouping <- as.factor(df_12_excl$diseasegroup_grouping)
+# check group sizes
+summary(df_12_excl$diseasegroup_grouping)
+
+# Means and SD
+df_12_excl %>% group_by(diseasegroup_grouping) %>% summarise_at(vars("SC_c","SC_p", "pNC_c","pNC_p", "pEO_c", "pEO_p", "pPO_c", "pPO_p"), funs(mean,sd), na.rm=TRUE)
+
+# MANOVA of mean differences between disease groups of study variables
+manova_diseasegroup <- manova(cbind(SC_c, SC_p,pNC_c,pNC_p,pEO_c,pEO_p,pPO_c,pPO_p) ~ diseasegroup_grouping, data = df_12_excl)
+summary(manova_diseasegroup) # no overall difference between disease groups
+summary.aov(manova_diseasegroup) # no variable differs between disease groups
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+# 5. Means, SD and MANOVA of mean differences per age group
+
+# Means and SD
+df_12_excl %>% group_by(cagegroup) %>% summarise_at(vars("SC_c","SC_p", "pNC_c","pNC_p", "pEO_c", "pEO_p", "pPO_c", "pPO_p"), funs(mean,sd), na.rm=TRUE)
+
+# check normal distribution
+hist(df_12_excl$SC_c)
+hist(df_12_excl$SC_p)
+hist(df_12_excl$pNC_c)
+hist(df_12_excl$pNC_p)
+hist(df_12_excl$pEO_c)
+hist(df_12_excl$pEO_p)
+hist(df_12_excl$pPO_c)
+hist(df_12_excl$pPO_p)
+
+# MANOVA of mean differences between disease groups of study variables
+manova_age <- manova(cbind(SC_c, SC_p,pNC_c,pNC_p,pEO_c,pEO_p,pPO_c,pPO_p) ~ cagegroup, data = df_12_excl)
+summary(manova_age) # difference between age groups
+summary.aov(manova_age) # SC_c differs between age groups
+```
+
+```{r include=FALSE}
+# claculate measurement invariance
+
+# estimate CFA
+model <- ' Stresscomm =~ SC1 + SC2
+Stresscomm ~~ pNC
+Stresscomm ~~ pEO
+Stresscomm ~~ pPO
+pNC ~~ pEO
+pNC ~~pPO
+pEO ~~pPO'
+
+# configural invariance
+cfa.config <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person")
+summary(cfa.config, fit.measures=TRUE,standardized=TRUE)
+ # good model fit
+
+# metric invariance
+cfa.metric <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person", group.equal="loadings")
+summary(compareFit(cfa.config, cfa.metric)) # model fit did not change significantly, good fit for metric model
+
+# scalar invariance
+cfa.scalar <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person", group.equal=c("loadings","intercepts"))
+
+# compare two models
+summary(compareFit(cfa.metric, cfa.scalar)) # significant chi-square, lack of scalar invariance
+
+# try to establish partial MI
+lavTestScore(cfa.scalar) # release intercept of NC
+parTable(cfa.scalar)
+
+cfa.scalar2 <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person", group.equal=c("loadings","intercepts"), group.partial="NC~1")
+
+# compare models again
+summary(compareFit(cfa.metric, cfa.scalar2)) # still significant, repeat procedure
+
+lavTestScore(cfa.scalar) # intercept EO
+
+cfa.scalar3 <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person", group.equal=c("loadings","intercepts"), group.partial=c("pNC~1","pEO~1"))
+
+summary(compareFit(cfa.metric, cfa.scalar3)) # still significant, release pPO intercept
+
+cfa.scalar4 <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person", group.equal=c("loadings","intercepts"), group.partial=c("pNC~1","pEO~1", "pPO~1"))
+
+summary(compareFit(cfa.metric, cfa.scalar4)) # not significant anymore -> releasing contraints on intercepts for pNC, pEO, and pPO establishes partial scalar invariance
+
+# strict invariance
+cfa.strict <- cfa(model, data =df_12_long_excl, estimator="WLSMV", group ="person", group.equal=c("loadings","intercepts","residuals"), group.partial=c("pNC~1","pEO~1", "pPO~1"))
+
+summary(compareFit(cfa.scalar4, cfa.strict)) # no strict invariance
+```
+
+```{r APIM 1A, echo=TRUE, message=FALSE, warning=FALSE}
+# APIMs
+# 1A
+model_pEO_cov <- 'pEO_c + pEO_p ~ SC_c + SC_p + pPO_c + pPO_p + pNC_c + pNC_p'
+apim_pEO_cov <- sem(model_pEO_cov, data = df_12_excl, meanstructure = TRUE)
+summary(apim_pEO_cov, standardized=TRUE,rsq =T)
+# significant actor effect child's SC on child's perception of parent's EO
+# significant actor effect parents's SC on parent's perception of child's EO
+# significant partner effect child's SC on parent's perception of child's EO
+# no partner effect of parent's SC on child's perception of parent's EO
+
+# calculate 95% CIs
+parameterEstimates(apim_pEO_cov, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+```
+
+```{r APIM 1B, echo=TRUE, message=FALSE, warning=FALSE}
+# 1B
+model_pEO <- 'pEO_c + pEO_p ~ SC_c + SC_p'
+apim_pEO <- sem(model_pEO, data = df_12_excl, meanstructure = TRUE)
+summary(apim_pEO, standardized=TRUE,rsq =T)
+# same effects as 1A
+
+# calculate 95% CIs
+parameterEstimates(apim_pEO, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+```
+
+```{r APIM 2a, echo=TRUE, message=FALSE, warning=FALSE}
+#2A
+model_pPO_cov <- 'pPO_c + pPO_p ~ SC_c + SC_p + pEO_c + pEO_p + pNC_c + pNC_p'
+apim_pPO_cov <- sem(model_pPO_cov, data = df_12_excl, meanstructure = TRUE)
+summary(apim_pPO_cov, standardized=TRUE,rsq =T)
+# significant actor effect child's SC on child's perception of parent's PO
+# no actor effect parents's SC on parent's perception of child's PO
+# no partner effect child's SC on parent's perception of child's PO
+# no partner effect of parent's SC on child's perception of parent's PO
+
+# calculate 95% CIs
+parameterEstimates(apim_pPO_cov, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+```
+
+```{r APIM 2B, echo=TRUE, message=FALSE, warning=FALSE}
+# 2B
+model_pPO <- 'pPO_c + pPO_p ~ SC_c + SC_p'
+apim_pPO <- sem(model_pPO, data = df_12_excl, meanstructure = TRUE)
+summary(apim_pPO, standardized=TRUE,rsq =T)
+# significant actor effect child's SC on child's perception of parent's PO
+# significant actor effect parents's SC on parent's perception of child's PO (!)
+# no partner effect child's SC on parent's perception of child's PO
+# no partner effect of parent's SC on child's perception of parent's PO
+
+# calculate 95% CIs
+parameterEstimates(apim_pPO, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+```
+
+```{r APIM 3A, echo=TRUE, message=FALSE, warning=FALSE}
+# 3A
+model_pNC_cov <- 'pNC_c + pNC_p ~ SC_c + SC_p + pEO_c + pEO_p + pPO_c + pPO_p'
+apim_pNC_cov <- sem(model_pNC_cov, data = df_12_excl, meanstructure = TRUE)
+summary(apim_pNC_cov, standardized=TRUE,rsq =T)
+# no actor effect child's SC on child's perception of parent's PO
+# significant actor effect parent's SC on parent's perception of child's PO
+# significant partner effect child's SC on parent's perception of child's PO
+# significant partner effect of parent's SC on child's perception of parent's PO
+
+# calculate 95% CIs
+parameterEstimates(apim_pNC_cov, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+```
+
+```{r APIM 3B, echo=TRUE, message=FALSE, warning=FALSE}
+# 3B
+model_pNC <- 'pNC_c + pNC_p ~ SC_c + SC_p'
+apim_pNC <- sem(model_pNC, data = df_12_excl, meanstructure = TRUE)
+summary(apim_pNC, standardized=TRUE,rsq =T)
+# significant actor effect child's SC on child's perception of parent's PO (!)
+# no actor effect parent's SC on parent's perception of child's PO (!)
+# significant partner effect child's SC on parent's perception of child's PO
+# no partner effect of parent's SC on child's perception of parent's PO (!)
+
+# calculate 95% CIs
+parameterEstimates(apim_pNC, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+```
+
+```{r eval=FALSE, include=FALSE}
+# not used anymore in current analysis
+
+# check differences between parents and children on study variables
+
+# set scipens to 30 for better readability
+options(scipen=30)
+
+# check normality assumption to decide between t-test and wilcoxon test
+# compute the difference and check visually and with shapiro-wilk test for normal distribution
+d1 <- with(df_12_excl, SC_c-SC_p)
+hist(d1) # looks okay
+shapiro.test(d1) # not normal
+
+d2 <- with(df_12_excl, PO_c-PO_p)
+hist(d2) # looks okay
+shapiro.test(d2) # not normal
+
+d3 <- with(df_12_excl, EO_c- EO_p)
+hist(d3) # looks okay
+shapiro.test(d3) # not normal
+
+d4 <- with(df_12_excl, NC_c- NC_p)
+hist(d4) # looks okay
+shapiro.test(d4) # not normal
+
+# as differences not normally distributed run wilxocon instead of t-tests
+
+# paired two-samples Wilcoxon tests
+
+# stress communication
+wilc_SC <- df_12_long_excl %>% rstatix::wilcox_test(SC ~ person, paired = TRUE) %>% add_significance()
+wilc_SC # differences
+# compute effect size
+df_12_long_excl %>% wilcox_effsize(SC ~ person, paired = TRUE) # 0.61 large
+
+# negative coping
+wilc_NC <- df_12_long_excl %>% rstatix::wilcox_test(NC ~ person, paired = TRUE) %>% add_significance()
+wilc_NC # difference
+# compute effect size
+df_12_long_excl %>% wilcox_effsize(NC ~ person, paired = TRUE)  # 0.56 large
+
+# emotion coping
+wilc_EO <- df_12_long_excl %>% rstatix::wilcox_test(EO ~ person, paired = TRUE) %>% add_significance()
+wilc_EO # difference
+# compute effect size
+df_12_long_excl %>% wilcox_effsize(EO ~ person, paired = TRUE)  #0.23, small
+
+# problem coping
+wilc_PO <- df_12_long_excl %>% rstatix::wilcox_test(PO ~ person, paired = TRUE) %>% add_significance()
+wilc_PO # difference
+# compute effect size
+df_12_long_excl %>% wilcox_effsize(PO ~ person, paired = TRUE) # 0.55 large
+
+# display means for write-up
+# stress communication
+df_12_long_excl %>%
+  group_by(person) %>%
+  summarise_at(vars(SC), list(mean,sd))
+
+# negative coping
+df_12_long_excl %>%
+  group_by(person) %>%
+  summarise_at(vars(NC), list(mean,sd))
+
+# emotion coping
+df_12_long_excl %>%
+  group_by(person) %>%
+  summarise_at(vars(EO), list(mean,sd))
+
+# problem coping
+df_12_long_excl %>%
+  group_by(person) %>%
+  summarise_at(vars(PO), list(mean,sd))
+
+# APIM NC
+modelNC_196 <- 'NC_c + NC_p ~ SC_c + SC_p + EO_c + EO_p + PO_c + PO_p'
+modelNC_fit_196 <- sem(modelNC_196, data = df_12_excl, meanstructure = TRUE)
+summary(modelNC_fit_196, standardized=TRUE,rsq =T)
+
+# calculate 95% CIs
+parameterEstimates(modelNC_fit_196, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+
+# APIM EO
+modelEO_196 <- 'EO_c + EO_p ~ SC_c + SC_p + NC_c + NC_p + PO_c + PO_p'
+modelEO_fit_196 <- sem(modelEO_196, data = df_12_excl, meanstructure = TRUE)
+summary(modelEO_fit_196, standardized=TRUE,rsq =T)
+
+# calculate 95% CIs
+parameterEstimates(modelEO_fit_196, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+
+# APIM PO
+modelPO_196 <- 'PO_c + PO_p ~ SC_c + SC_p + NC_c + NC_p + EO_c + EO_p'
+modelPO_fit_196 <- sem(modelPO_196, data = df_12_excl, meanstructure = TRUE)
+summary(modelPO_fit_196, standardized=TRUE,rsq =T)
+
+# calculate 95% CIs
+parameterEstimates(modelPO_fit_196, ci = TRUE, level = 0.95, boot.ci.type = 'bca.simple')
+
+# apim without controling for other dimensions
+
+# APIM NC
+modelNC_196_control <- 'NC_c + NC_p ~ SC_c + SC_p'
+modelNC_fit_196_control <- sem(modelNC_196_control, data = df_12_excl, meanstructure = TRUE)
+summary(modelNC_fit_196_control, standardized=TRUE,rsq =T)
+
+# APIM EO
+modelEO_196_control <- 'EO_c + EO_p ~ SC_c + SC_p'
+modelEO_fit_196_control <- sem(modelEO_196_control, data = df_12_excl, meanstructure = TRUE)
+summary(modelEO_fit_196_control, standardized=TRUE,rsq =T)
+
+# APIM PO
+modelPO_196_control <- 'PO_c + PO_p ~ SC_c + SC_p'
+modelPO_fit_196_control <- sem(modelPO_196_control, data = df_12_excl, meanstructure = TRUE)
+summary(modelPO_fit_196_control, standardized=TRUE,rsq =T)
+
+# wilcoxon tests between perceived coping between children and parents
+# supplementary analysis
+wilc_pSC <- df_12_long_excl %>% rstatix::wilcox_test(pSC ~ person, paired = TRUE) %>% add_significance()
+wilc_pSC # difference
+df_12_long_excl %>% wilcox_effsize(pSC ~ person, paired = TRUE) # 0.42 moderate
+
+wilc_pNC <- df_12_long_excl %>% rstatix::wilcox_test(pNC ~ person, paired = TRUE) %>% add_significance()
+wilc_pNC # difference
+df_12_long_excl %>% wilcox_effsize(pNC ~ person, paired = TRUE) # 0.30 moderate
+
+wilc_pEO <- df_12_long_excl %>% rstatix::wilcox_test(pEO ~ person, paired = TRUE) %>% add_significance()
+wilc_pEO # difference
+df_12_long_excl %>% wilcox_effsize(pEO ~ person, paired = TRUE) # 0.55 large
+
+wilc_pPO <- df_12_long_excl %>% rstatix::wilcox_test(pPO ~ person, paired = TRUE) %>% add_significance()
+wilc_pPO # difference
+df_12_long_excl %>% wilcox_effsize(pPO ~ person, paired = TRUE) # 0.62 large
+
+# correlations between children's items
+df_cor_perceived_child <- df_12_excl[,c(8:11,20:23)]
+# rename variables
+colnames(df_cor_perceived_child)[1] <- "Stress communication"
+colnames(df_cor_perceived_child)[2] <- "Problem oriented coping"
+colnames(df_cor_perceived_child)[3] <- "Emotion oriented coping"
+colnames(df_cor_perceived_child)[4] <- "Negative oriented coping"
+colnames(df_cor_perceived_child)[5] <- "Stress communication"
+colnames(df_cor_perceived_child)[6] <- "Problem oriented coping"
+colnames(df_cor_perceived_child)[7] <- "Emotion oriented coping"
+colnames(df_cor_perceived_child)[8] <- "Negative oriented coping"
+#create table
+#apa.cor.table(df_cor_perceived_child, filename="cor_withoutage.doc", table.number=2)
+
+# correlations between parents items
+df_cor_perceived_parent <- df_12_excl[,c(16:19,12:15)]
+
+# rename variables
+colnames(df_cor_perceived_parent)[1] <- "Stress communication"
+colnames(df_cor_perceived_parent)[2] <- "Problem oriented coping"
+colnames(df_cor_perceived_parent)[3] <- "Emotion oriented coping"
+colnames(df_cor_perceived_parent)[4] <- "Negative oriented coping"
+colnames(df_cor_perceived_parent)[5] <- "Perceived stress communication"
+colnames(df_cor_perceived_parent)[6] <- "Perceived Problem oriented coping"
+colnames(df_cor_perceived_parent)[7] <- "Perceived Emotion oriented coping"
+colnames(df_cor_perceived_parent)[8] <- "Perceived Negative oriented coping"
+#create table
+#apa.cor.table(df_cor_perceived_parent, filename="df_cor_perceived_parent.doc", table.number=3, cor.method="pearson")
+
+# apimem
+
+source("/medyadfunction.R")
+
+# Negative dyadic coping
+medyad(data = df_12_excl, y = c("NC_c","NC_p"), x = c("SC_c","SC_p"), m = c("pSC_c","pSC_p"), cov = c( "age_c"), )
+
+# emotion-oriented dyadic coping
+medyad(data = df_12_excl, y = c("EO_c","EO_p"), x = c("SC_c","SC_p"), m = c("pSC_c","pSC_p"), cov = c( "age_c"))
+
+# problem-oriented coping
+medyad(data = df_12_excl, y = c("PO_c","PO_p"), x = c("SC_c","SC_p"), m = c("pSC_c","pSC_p"), cov = c( "age_c"))
+```
