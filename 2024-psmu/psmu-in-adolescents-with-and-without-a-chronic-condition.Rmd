@@ -1,0 +1,1139 @@
+---
+title: "Code - Excluding SEM"
+author: "Hannah van Steenis"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Libraries
+```{r}
+library(jmv)#EFA
+library(car) #For two-way ANOVA
+library(corrr) #Correlation matrix
+library(dplyr)
+library(extrafont)#font in apa plot
+library(ggplot2)
+library(ggpubr) #qq plots
+library(haven) #Reading SPSS file
+library(Hmisc) #Correlation matrix
+library(ICC) #for the ICC
+library(lavaan)
+library(lsr) ##for partial eta squared
+library(ltm) #Cronbach's alpha
+library(naniar) #NA replacement
+library(rstatix)#identifying outliers
+library(tidyr)
+library(tidyverse)
+library(psych) # ordinal alpha
+library(sjPlot)
+library(officer)
+library(DT)
+
+```
+
+#Importing data
+```{r}
+PROactive <- read_sav("FINAL_Reine_gaming_Pseudo_20230227.sav")
+DiFa <- read_sav("DiFa.sav")
+
+#Removing all rows with age < 12
+PROactive <- PROactive[!(PROactive$Leeftijd_extended < 12),]
+DiFa <- DiFa[!(DiFa$AV_Age < 12 | DiFa$AV_Age > 18),]
+
+```
+
+#PROactive
+##Data Preperation
+###Removing variables
+```{r}
+PROactive <- PROactive %>% 
+  dplyr::select(-contains(c("_8_11",#removing all participants from the 8-11 age group.
+                     "_V2_",
+                     "_V3",
+                     "_V4",
+                     "new_mensen_huis",
+                     "ander_huis",
+                     "mensen_anderhuis",
+                     "Steunthuis",
+                     "TijdGames",
+                     "Slaap",
+                     "slaap",
+                     "slapen",
+                     "opstaan",
+                     "_praten_zorgen_",
+                     "uitspraken_gezin",
+                     "games",
+                     "bezigheid",
+                     "thuis_steun",
+                     "spelletjes",
+                     "bezigheid",
+                     "_renamed",
+                     "_8_12",
+                     "kind_pedsql_13_17_",
+                     "kind_algemeen_proactive_extended_12_18",
+                     "Praten",
+                     "AlgVragenlijst_V1_12_18_leeftijd",
+                     "kind_algemeen_proactive_12_18_new_woon_ouders_",
+                     "AlgVragenlijst_V22",
+                     "AlgVragenlijst_V24",
+                     "AlgVragenlijst_V25",
+                     "AlgVragenlijst_V26",
+                     "AlgVragenlijst_V27",
+                     "_SES",
+                     "Leeftijd_baseline",
+                     "Baseline_8_18_InvulDatum")))
+
+#Adding P to every participant ID
+PROactive$participant_ID <- sub("^", "P", PROactive$PatientID_Reine)
+
+PROactive <- PROactive %>% 
+  relocate(participant_ID, .before = PatientID_Reine)
+
+#Removing all participants who did not fill out QoL.
+PROactive <- subset(PROactive, !is.na(p_tot))
+
+```
+
+### Renaming variables
+```{r}
+PROactive <- PROactive %>% 
+  rename("age" = "Leeftijd_extended",
+         "gender" = "PatientGeslachtNr",
+         "life_satisfaction_rec" = "CijferLeven_12_18_recode",
+         "illness_perception" = "Gezondheid_12_18_recode",
+         "living_situation" = "AlgVragenlijst_V1_12_18_baseline")
+
+```
+
+###Transforming variables
+```{r}
+#Gender
+PROactive$gender <- as.character(PROactive$gender)
+PROactive$gender <- case_when(
+  PROactive$gender == "0" ~ "female",
+  PROactive$gender == "1" ~ "male"
+)
+
+#Problematic social media use
+PROactive$PSMU1 <- as.numeric(PROactive$ProblSocMedia1_12_18_recode)
+PROactive$PSMU1 <- case_when(
+  PROactive$PSMU1 == 1 ~ 0,
+  PROactive$PSMU1 == 2 ~ 1
+)
+
+PROactive$PSMU2 <- as.numeric(PROactive$ProblSocMedia2_12_18_recode)
+PROactive$PSMU2 <- case_when(
+  PROactive$PSMU2 == 1 ~ 0,
+  PROactive$PSMU2 == 2 ~ 1
+)
+
+PROactive$PSMU3 <- as.numeric(PROactive$ProblSocMedia3_12_18_recode)
+PROactive$PSMU3 <- case_when(
+  PROactive$PSMU3 == 1 ~ 0,
+  PROactive$PSMU3 == 2 ~ 1
+)
+
+PROactive$PSMU4 <- as.numeric(PROactive$ProblSocMedia4_12_18_recode)
+PROactive$PSMU4 <- case_when(
+  PROactive$PSMU4 == 1 ~ 0,
+  PROactive$PSMU4 == 2 ~ 1
+)
+
+PROactive$PSMU5 <- as.numeric(PROactive$ProblSocMedia5_12_18_recode)
+PROactive$PSMU5 <- case_when(
+  PROactive$PSMU5 == 1 ~ 0,
+  PROactive$PSMU5 == 2 ~ 1
+)
+
+#Sum of problematic SMU
+PROactive$problematic_SMU_short <- PROactive$PSMU1 + PROactive$PSMU2 +  PROactive$PSMU3 + PROactive$PSMU4 + PROactive$PSMU5
+
+#Making school variable
+PROactive$education_level_basisschool <- as.numeric(PROactive$Soortonderwijs1_12_18_recode)
+PROactive$education_level_MBO <- as.numeric(PROactive$Soortonderwijs2_12_18_recode)
+PROactive$education_level_VMBO <- as.numeric(PROactive$Soortonderwijs3_12_18_recode)
+PROactive$education_level_HAVO <- as.numeric(PROactive$Soortonderwijs4_12_18_recode)
+PROactive$education_level_VWO_gym <- as.numeric(PROactive$Soortonderwijs5_12_18_recode)
+PROactive$education_level_speciaal <- as.numeric(PROactive$Soortonderwijs6_12_18_recode)
+
+PROactive <- PROactive %>% 
+  mutate_at(c('education_level_basisschool', 'education_level_MBO', 'education_level_VMBO', 'education_level_HAVO', 'education_level_HAVO', 'education_level_VWO_gym', 'education_level_speciaal'), ~ na_if(.,0))
+
+PROactive_edu <- PROactive[, c('PatientID_Reine', 'education_level_basisschool', 'education_level_MBO', 'education_level_VMBO', 'education_level_HAVO', 'education_level_VWO_gym', 'education_level_speciaal')]
+
+PROactive_edu$education_level_basisschool <- as.character(PROactive_edu$education_level_basisschool)
+PROactive_edu$education_level_MBO <- as.character(PROactive_edu$education_level_MBO)
+PROactive_edu$education_level_VMBO <- as.character(PROactive_edu$education_level_VMBO)
+PROactive_edu$education_level_HAVO <- as.character(PROactive_edu$education_level_HAVO)
+PROactive_edu$education_level_VWO_gym <- as.character(PROactive_edu$education_level_VWO_gym)
+PROactive_edu$education_level_speciaal <- as.character(PROactive_edu$education_level_speciaal)
+
+PROactive_edu$education_level_basisschool <- case_when(PROactive_edu$education_level_basisschool == "1" ~ "basisschool")
+PROactive_edu$education_level_MBO <- case_when(PROactive_edu$education_level_MBO == "1" ~ "MBO")
+PROactive_edu$education_level_VMBO <- case_when(PROactive_edu$education_level_VMBO == "1" ~ "middelbareschool")
+PROactive_edu$education_level_HAVO <- case_when(PROactive_edu$education_level_HAVO == "1" ~ "middelbareschool")
+PROactive_edu$education_level_VWO_gym <- case_when(PROactive_edu$education_level_VWO_gym == "1" ~ "middelbareschool")
+PROactive_edu$education_level_speciaal <- case_when(PROactive_edu$education_level_speciaal == "1" ~ "speciaal")
+
+PROactive_edu <- PROactive_edu %>% 
+  unite(col = 'education_group', c('education_level_basisschool', 'education_level_MBO', 'education_level_VMBO', 'education_level_HAVO', 'education_level_VWO_gym', 'education_level_speciaal'), na.rm = TRUE, remove = TRUE)
+
+PROactive_edu <- replace(PROactive_edu, PROactive_edu=='', NA)
+
+#Merge with PROactive dataframe
+PROactive <- full_join(PROactive, PROactive_edu, by = "PatientID_Reine")
+
+#Removing excessive education variables
+PROactive <- PROactive %>% 
+  dplyr::select(-contains(c("education_level_")))
+
+```
+
+###Computing new ariables
+```{r}
+#New categorical illness perception variable
+PROactive$illness_perception_cat <- as.character(PROactive$illness_perception)
+PROactive$illness_perception_cat <- case_when(
+  PROactive$illness_perception_cat == "1" ~ "Excellent",
+  PROactive$illness_perception_cat == "2" ~ "Good",
+  PROactive$illness_perception_cat == "3" ~ "Tolerable",
+  PROactive$illness_perception_cat == "4" ~ "Bad"
+)
+
+PROactive$illness_perception_cat <- factor(PROactive$illness_perception_cat, levels=c('Bad', 'Tolerable', 'Good', 'Excellent'))
+
+#Mean centered scores
+PROactive <- PROactive %>% 
+  mutate(PSMU_C1 = PSMU1 - mean(PSMU1),
+         PSMU_C2 = PSMU2 - mean(PSMU2),
+         PSMU_C3 = PSMU3 - mean(PSMU3),
+         PSMU_C4 = PSMU4 - mean(PSMU4),
+         PSMU_C5 = PSMU5 - mean(PSMU5),
+         IP_C = illness_perception - mean(illness_perception),
+         PSMU_C = problematic_SMU_short - mean(problematic_SMU_short))
+
+```
+
+###Cronbach's alpha
+```{r}
+#Quality of life
+##Total
+cba.qol <- PROactive[c("P_V01", "P_V02", "P_V03", "P_V04", "P_V05", "P_V06", "P_V07", "P_V09", "P_V10", "P_V11", "P_V12", "P_V13", "P_V14", "P_V15", "P_V16", "P_V17", "P_V18", "P_V19", "P_V20", "P_V21", "P_V23")]
+cronbach.alpha(cba.qol, na.rm = TRUE)
+
+##Lich
+cba.qol.lich <- PROactive[c("P_V01", "P_V02", "P_V03", "P_V04", "P_V05", "P_V06", "P_V07")]
+cronbach.alpha(cba.qol.lich, na.rm = TRUE)
+
+##Sociaal
+cba.qol.soci <- PROactive[c("P_V14", "P_V15", "P_V16", "P_V17", "P_V18")]
+cronbach.alpha(cba.qol.soci, na.rm = TRUE)
+
+##School
+cba.qol.school <- PROactive[c("P_V19", "P_V20", "P_V21", "P_V23")]
+cronbach.alpha(cba.qol.school, na.rm = TRUE)
+
+##Emotioneel
+cba.qol.emo <- PROactive[c("P_V09", "P_V10", "P_V11", "P_V12", "P_V13")]
+cronbach.alpha(cba.qol.emo, na.rm = TRUE)
+
+```
+
+###SEM
+####New Dataset
+```{r}
+#Removing all variables with NA's on quality of life
+PROactive_SEM <- subset(PROactive, !is.na(p_tot))
+
+#Making new variable with PSMU >3 = NA
+PROactive_SEM <- PROactive_SEM %>% 
+  mutate(PSMU_three = problematic_SMU_short) %>% 
+  replace_with_na(replace = list(PSMU_three = c(4, 5)))
+
+table(PROactive_SEM$PatientGroep, useNA = "ifany")
+prop.table(table(PROactive_SEM$PatientGroep, useNA = "ifany"))
+
+table(PROactive_SEM$problematic_SMU_short)
+
+```
+
+#### Cronbach's alpha
+```{r}
+#PSMU
+cba.psmu.proactive <- PROactive_SEM[c("ProblSocMedia1_12_18_recode", "ProblSocMedia2_12_18_recode", "ProblSocMedia3_12_18_recode", "ProblSocMedia4_12_18_recode", "ProblSocMedia5_12_18_recode")]
+cronbach.alpha(cba.psmu.proactive)
+```
+
+#### Descriptives
+```{r}
+nrow(PROactive_SEM)
+
+#Descriptives
+table(PROactive_SEM$gender, useNA = "ifany")
+
+summary(PROactive_SEM$age)
+mean(PROactive_SEM$age)
+sd(PROactive_SEM$age)
+
+table(PROactive_SEM$education_group, useNA = "ifany")
+
+table(PROactive_SEM$living_situation, useNA = "ifany")
+
+#Central tendencies
+mean(PROactive_SEM$problematic_SMU_short, na.rm = TRUE)
+sd(PROactive_SEM$problematic_SMU_short, na.rm = TRUE)
+var(PROactive_SEM$problematic_SMU_short, na.rm = TRUE)
+
+mean(PROactive_SEM$p_tot)
+sd(PROactive_SEM$p_tot)
+
+mean(PROactive_SEM$p_lich)
+sd(PROactive_SEM$p_lich)
+
+mean(PROactive_SEM$p_soc)
+sd(PROactive_SEM$p_soc)
+
+mean(PROactive_SEM$p_school)
+sd(PROactive_SEM$p_school)
+
+mean(PROactive_SEM$p_emo)
+sd(PROactive_SEM$p_emo)
+
+mean(PROactive_SEM$illness_perception)
+sd(PROactive_SEM$illness_perception)
+
+```
+
+####Correlations
+```{r}
+# Add a new variable 'gender_num' with male = 1 and female = 0
+PROactive_SEM <- PROactive_SEM %>%
+  mutate(gender_num = ifelse(gender == "male", 1, ifelse(gender == "female", 0, NA)))
+
+# Verify the new variable
+head(PROactive_SEM)
+
+cor.SEM <- PROactive_SEM %>% 
+  dplyr::select(problematic_SMU_short, p_tot, p_lich, p_soc, p_school, p_emo, life_satisfaction_rec, age, gender_num)
+
+Hmisc::rcorr(as.matrix(cor.SEM))
+
+# Subset the dataset with the specified variables
+cors <- c("problematic_SMU_short", "p_tot", "p_lich", "p_soc", "p_school", "p_emo", "illness_perception", "life_satisfaction_rec", "age", "gender_num")
+subset_cors <- PROactive_SEM[, cors, drop = FALSE]
+data("subset_cors")
+head(subset_cors)
+tab_corr(subset_cors)
+getwd()
+
+tab_corr(subset_cors,
+         triangle = "lower",
+         digits = 2,
+         file = "Table_2.doc")
+
+
+
+
+```
+
+```{r}
+# Calculate means
+mean_problematic_SMU_short <- mean(PROactive_SEM$problematic_SMU_short, na.rm = TRUE)
+mean_p_tot <- mean(PROactive_SEM$p_tot, na.rm = TRUE)
+mean_p_lich <- mean(PROactive_SEM$p_lich, na.rm = TRUE)
+mean_p_soc <- mean(PROactive_SEM$p_soc, na.rm = TRUE)
+mean_p_school <- mean(PROactive_SEM$p_school, na.rm = TRUE)
+mean_p_emo <- mean(PROactive_SEM$p_emo, na.rm = TRUE)
+mean_life_satisfaction_rec <- mean(PROactive_SEM$life_satisfaction_rec, na.rm = TRUE)
+mean_age <- mean(PROactive_SEM$age, na.rm = TRUE)
+mean_hp <- mean(PROactive_SEM$illness_perception, na.rm = TRUE)
+
+# Calculate standard deviations
+sd_problematic_SMU_short <- sd(PROactive_SEM$problematic_SMU_short, na.rm = TRUE)
+sd_p_tot <- sd(PROactive_SEM$p_tot, na.rm = TRUE)
+sd_p_lich <- sd(PROactive_SEM$p_lich, na.rm = TRUE)
+sd_p_soc <- sd(PROactive_SEM$p_soc, na.rm = TRUE)
+sd_p_school <- sd(PROactive_SEM$p_school, na.rm = TRUE)
+sd_p_emo <- sd(PROactive_SEM$p_emo, na.rm = TRUE)
+sd_life_satisfaction_rec <- sd(PROactive_SEM$life_satisfaction_rec, na.rm = TRUE)
+sd_age <- sd(PROactive_SEM$age, na.rm = TRUE)
+sd_hp <- sd(PROactive_SEM$illness_perception, na.rm = TRUE)
+
+# Print the results
+means_and_sds <- tibble(
+  Variable = c("problematic_SMU_short", "p_tot", "p_lich", "p_soc", "p_school", "p_emo", "life_satisfaction_rec", "age", "illness_perception"),
+  Mean = c(mean_problematic_SMU_short, mean_p_tot, mean_p_lich, mean_p_soc, mean_p_school, mean_p_emo, mean_life_satisfaction_rec, mean_age, mean_hp),
+  SD = c(sd_problematic_SMU_short, sd_p_tot, sd_p_lich, sd_p_soc, sd_p_school, sd_p_emo, sd_life_satisfaction_rec, sd_age, sd_hp)
+)
+
+print(means_and_sds)
+
+
+```
+
+
+##Descriptive statistics
+```{r}
+nrow(PROactive)
+
+table(PROactive$gender, useNA = "ifany")
+prop.table(table(PROactive$gender, useNA = "ifany"))
+
+summary(PROactive$age)
+mean(PROactive$age)
+sd(PROactive$age)
+
+table(PROactive$education_group, useNA = "ifany")
+prop.table(table(PROactive$education_group, useNA = "ifany"))
+
+table(PROactive$illness_perception_cat, useNA = "ifany")
+
+table(PROactive$problematic_SMU_short_cat, useNA = "ifany")
+
+table(PROactive$PatientGroep, useNA = "ifany")
+prop.table(table(PROactive$PatientGroep, useNA = "ifany"))
+
+#PSMU and LS
+mean(PROactive$problematic_SMU_short, na.rm = TRUE)
+sd(PROactive$problematic_SMU_short, na.rm = TRUE)
+var(PROactive$problematic_SMU_short, na.rm = TRUE)
+
+mean(PROactive$life_satisfaction_rec, na.rm = TRUE)
+sd(PROactive$life_satisfaction_rec, na.rm = TRUE)
+
+table(PROactive$problematic_SMU_short)
+
+```
+
+###Descriptive statistics SEM
+```{r}
+nrow(PROactive_SEM)
+
+table(PROactive_SEM$gender, useNA = "ifany")
+prop.table(table(PROactive_SEM$gender, useNA = "ifany"))
+
+summary(PROactive_SEM$age)
+mean(PROactive_SEM$age)
+sd(PROactive_SEM$age)
+
+mean(PROactive_SEM$problematic_SMU_short)
+sd(PROactive_SEM$problematic_SMU_short)
+
+table(PROactive_SEM$education_group, useNA = "ifany")
+prop.table(table(PROactive_SEM$education_group, useNA = "ifany"))
+
+mean(PROactive_SEM$illness_perception)
+sd(PROactive_SEM$illness_perception)
+
+# Means per QoL group
+mean(PROactive_SEM$p_tot)
+sd(PROactive_SEM$p_tot)
+
+mean(PROactive_SEM$p_emo)
+sd(PROactive_SEM$p_emo)
+
+mean(PROactive_SEM$p_school)
+sd(PROactive_SEM$p_school)
+
+mean(PROactive_SEM$p_lich)
+sd(PROactive_SEM$p_lich)
+
+mean(PROactive_SEM$p_soc)
+sd(PROactive_SEM$p_soc)
+
+
+```
+
+###Descriptives per illness group
+```{r}
+#Per patient group
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(p_tot), list(name = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(p_lich), list(name = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(p_emo), list(name = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(p_soc), list(name = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(p_school), list(name = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(illness_perception), list(name = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PatientGroep) %>% 
+  summarise_at(vars(problematic_SMU_short), list(name = mean, sd))
+
+table(PROactive_SEM$PatientGroep)
+
+```
+
+###Descriptives diagnosed vs. undiagnosed
+```{r}
+PROactive_SEM <- PROactive_SEM %>% 
+  mutate(PG = case_when(
+    PatientGroep == "Algemene pediatrie WKZ PRO-ACTIVE" ~ "General Pediatrics",
+    PatientGroep == "CF WKZ PRO-ACTIVE" ~ "Diagnosed",
+    PatientGroep == "Congenitale hartziekten PRO-ACTIVE WKZ" ~ "Diagnosed",
+    PatientGroep == "Kindernefrologie WKZ PRO-ACTIVE" ~ "Diagnosed",
+    PatientGroep == "(Auto-)immuunziekten WKZ PRO-ACTIVE" ~ "Diagnosed"
+  ))
+
+PROactive_SEM <- PROactive_SEM %>% 
+  relocate(PG, .after=PatientGroep)
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(p_tot), list(p_tot = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise(p_tot_mean = mean(p_tot), p_tot_sd = sd(p_tot))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(p_lich), list(lich = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(p_emo), list(emo = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(p_soc), list(soc = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(p_school), list(school = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(illness_perception), list(illnessperception = mean, sd))
+
+PROactive_SEM %>% 
+  group_by(PG) %>% 
+  summarise_at(vars(problematic_SMU_short), list(psmu = mean, sd))
+
+table(PROactive_SEM$PG)
+
+```
+
+#DiFa
+##Renaming variables
+```{r}
+DiFa <- DiFa %>% 
+  rename("age" = "AV_Age",
+         "gender" = "AV3",
+         "education_group" = "AV4",
+         "primaryschool_year" = "AV5",
+         "secondaryschool_year" = "AV6",
+         "education_level" = "AV7",
+         "birth_country" = "AV8",
+         "living_situation" = "AV9",
+         "siblings" = "AV10",
+         "older_brothers" = "AV11_1",
+         "younger_brothers" = "AV11_2",
+         "older_sisters" = "AV11_3",
+         "younger_sisters" = "AV11_4",
+         "passive_SMU" = "AV17",
+         "passive_SMU_message" = "AV21",
+         "active_SMU_message" = "AV22",
+         "active_SMU_posting" = "AV18",
+         "active_SMU_liking" = "AV19",
+         "smartphone_ownership" = "AV20",
+         "life_satisfaction" = "AV47",
+         "subjective_smartphone_use" = "AV52"
+)
+
+```
+
+##Transforming variables
+```{r}
+#ID
+#Adding P to every participant ID
+DiFa$participant_ID <- sub("^", "D", DiFa$adolescent_id)
+
+DiFa <- DiFa %>% 
+  relocate(participant_ID, .before = AV_StartDate)
+
+#Gender
+DiFa$gender <- as.character(DiFa$gender)
+DiFa$gender <- case_when(
+  DiFa$gender == "1" ~ "male",
+  DiFa$gender == "2" ~ "female"
+)
+
+#Education group
+DiFa$education_group <- as.character(DiFa$education_group)
+DiFa$education_group <- case_when(
+  DiFa$education_group == "1" ~ "basisschool",
+  DiFa$education_group == "2" ~ "middelbareschool",
+  DiFa$education_group == "3" ~ "MBO",
+  DiFa$education_group == "4" ~ "HBO"
+)
+
+#Education year primary school
+DiFa$primaryschool_year <- as.character(DiFa$primaryschool_year)
+DiFa$primaryschool_year <- case_when(
+  DiFa$primaryschool_year == "1" ~ "groep5",
+  DiFa$primaryschool_year == "2" ~ "groep6",
+  DiFa$primaryschool_year == "3" ~ "groep7",
+  DiFa$primaryschool_year == "4" ~ "groep8"
+)
+
+#Education year high school
+DiFa$secondaryschool_year <- as.character(DiFa$secondaryschool_year)
+DiFa$secondaryschool_year <- case_when(
+  DiFa$secondaryschool_year == "1" ~ "1eklas",
+  DiFa$secondaryschool_year == "2" ~ "2eklas",
+  DiFa$secondaryschool_year == "3" ~ "3eklas",
+  DiFa$secondaryschool_year == "4" ~ "4eklas",
+  DiFa$secondaryschool_year == "5" ~ "5eklas",
+  DiFa$secondaryschool_year == "6" ~ "6eklas"
+)
+
+#Education level
+DiFa$education_level <- as.character(DiFa$education_level)
+DiFa$education_level <- case_when(
+  DiFa$education_level == "1" ~ "VMBO_b",
+  DiFa$education_level == "2" ~ "VMBO_t",
+  DiFa$education_level == "3" ~ "VMBO_HAVO",
+  DiFa$education_level == "4" ~ "HAVO",
+  DiFa$education_level == "5" ~ "HAVO_VWO",
+  DiFa$education_level == "6" ~ "VWO_Gymnasium"
+)
+
+#Birth country
+DiFa$birth_country <- as.character(DiFa$birth_country)
+DiFa$birth_country <- case_when(
+  DiFa$birth_country == "1" ~ "Nederland",
+  DiFa$birth_country == "3" ~ "Other",
+  DiFa$birth_country == "6" ~ "Other"
+)
+
+#Living situation
+DiFa$living_situation <- as.character(DiFa$living_situation)
+DiFa$living_situation <- case_when(
+  DiFa$living_situation == "1" ~ "Intact",
+  DiFa$living_situation == "2" ~ "Equally divided between mother and father",
+  DiFa$living_situation == "3" ~ "Mother and her partner",
+  DiFa$living_situation == "4" ~ "Father and his partner",
+  DiFa$living_situation == "5" ~ "Mother",
+  DiFa$living_situation == "6" ~ "Father",
+  DiFa$living_situation == "7" ~ "Other"
+)
+
+```
+
+##Calculating new variables
+```{r}
+#Problematic SMU
+DiFa$AV16_1 <- as.numeric(DiFa$AV16_1)
+DiFa$AV16_1 <- case_when(
+  DiFa$AV16_1 == "1" ~ "1",
+  DiFa$AV16_1 == "2" ~ "0",
+  DiFa$AV16_1 == "0" ~ "0"
+)
+
+DiFa$AV16_2 <- as.numeric(DiFa$AV16_2)
+DiFa$AV16_2 <- case_when(
+  DiFa$AV16_2 == "1" ~ "1",
+  DiFa$AV16_2 == "2" ~ "0",
+  DiFa$AV16_2 == "0" ~ "0"
+)
+
+DiFa$AV16_3 <- as.numeric(DiFa$AV16_3)
+DiFa$AV16_3 <- case_when(
+  DiFa$AV16_3 == "1" ~ "1",
+  DiFa$AV16_3 == "2" ~ "0",
+  DiFa$AV16_3 == "0" ~ "0"
+)
+
+DiFa$AV16_4 <- as.numeric(DiFa$AV16_4)
+DiFa$AV16_4 <- case_when(
+  DiFa$AV16_4 == "1" ~ "1",
+  DiFa$AV16_4 == "2" ~ "0",
+  DiFa$AV16_4 == "0" ~ "0"
+)
+
+DiFa$AV16_5 <- as.numeric(DiFa$AV16_5)
+DiFa$AV16_5 <- case_when(
+  DiFa$AV16_5 == "1" ~ "1",
+  DiFa$AV16_5 == "2" ~ "0",
+  DiFa$AV16_5 == "0" ~ "0"
+)
+
+DiFa$AV16_6 <- as.numeric(DiFa$AV16_6)
+DiFa$AV16_6 <- case_when(
+  DiFa$AV16_6 == "1" ~ "1",
+  DiFa$AV16_6 == "2" ~ "0",
+  DiFa$AV16_6 == "0" ~ "0"
+)
+
+DiFa$AV16_7 <- as.numeric(DiFa$AV16_7)
+DiFa$AV16_7 <- case_when(
+  DiFa$AV16_7 == "1" ~ "1",
+  DiFa$AV16_7 == "2" ~ "0",
+  DiFa$AV16_7 == "0" ~ "0"
+)
+
+DiFa$AV16_8 <- as.numeric(DiFa$AV16_8)
+DiFa$AV16_8 <- case_when(
+  DiFa$AV16_8 == "1" ~ "1",
+  DiFa$AV16_8 == "2" ~ "0",
+  DiFa$AV16_8 == "0" ~ "0"
+)
+
+DiFa$AV16_9 <- as.numeric(DiFa$AV16_9)
+DiFa$AV16_9 <- case_when(
+  DiFa$AV16_9 == "1" ~ "1",
+  DiFa$AV16_9 == "2" ~ "0",
+  DiFa$AV16_9 == "0" ~ "0"
+)
+
+#AV16's to numeric
+DiFa <- DiFa %>% 
+  mutate_at(c('AV16_1', 'AV16_2', 'AV16_3', 'AV16_4', 'AV16_5', 'AV16_6', 'AV16_7', 'AV16_8', 'AV16_9'), as.numeric)
+
+#Problematic SMU in one variable
+DiFa$problematic_SMU  <- DiFa$AV16_1 + DiFa$AV16_2 + DiFa$AV16_3 + DiFa$AV16_4 + DiFa$AV16_5 + DiFa$AV16_6 + DiFa$AV16_7 + DiFa$AV16_8 + DiFa$AV16_9
+
+DiFa <- DiFa %>% 
+  relocate(problematic_SMU, .after = AV16_9)
+
+#Problematic SMU short, including only variables that were also in PROactive
+DiFa$problematic_SMU_short <- DiFa$AV16_1 + DiFa$AV16_2 + DiFa$AV16_3 + DiFa$AV16_5 + DiFa$AV16_7
+
+DiFa <- DiFa %>% 
+  relocate(problematic_SMU_short, .after = problematic_SMU)
+
+#Recoding life satisfaction
+DiFa$life_satisfaction <- as.numeric(DiFa$life_satisfaction)
+DiFa$life_satisfaction_rec <- case_when(
+  DiFa$life_satisfaction == "1" ~ "10",
+  DiFa$life_satisfaction == "2" ~ "9",
+  DiFa$life_satisfaction == "3" ~ "8",
+  DiFa$life_satisfaction == "4" ~ "7",
+  DiFa$life_satisfaction == "5" ~ "6",
+  DiFa$life_satisfaction == "6" ~ "5",
+  DiFa$life_satisfaction == "7" ~ "4",
+  DiFa$life_satisfaction == "8" ~ "3",
+  DiFa$life_satisfaction == "9" ~ "2",
+  DiFa$life_satisfaction == "10" ~ "1",
+  DiFa$life_satisfaction == "11" ~ "0"
+)
+
+DiFa$life_satisfaction_rec <- as.numeric(DiFa$life_satisfaction_rec)
+
+```
+
+## Cronbach's alpha
+```{r}
+cba.psmu.full.difa <- DiFa[c("AV16_1", "AV16_2", "AV16_3", "AV16_4", "AV16_5", "AV16_6", "AV16_7", "AV16_8", "AV16_9")]
+cronbach.alpha(cba.psmu.full.difa, na.rm = TRUE)
+
+```
+
+##Descriptive statistics
+```{r}
+nrow(DiFa)
+
+table(DiFa$gender)
+prop.table(table(DiFa$gender, useNA = "ifany"))
+
+table(DiFa$age)
+
+table(DiFa$education_group, useNA = "ifany")
+prop.table(table(DiFa$education_group, useNA = "ifany"))
+
+table(DiFa$education_level, useNA = "ifany")
+prop.table(table(DiFa$education_level, useNA = "ifany"))
+
+summary(DiFa$age)
+mean(DiFa$age)
+sd(DiFa$age)
+
+DiFa %>% 
+  group_by(age, problematic_SMU) %>% 
+  summarise(N = n())
+
+#Missing data per column
+colSums(is.na.data.frame(DiFa))
+
+#Mean PSMU_short and LS
+mean(DiFa$problematic_SMU_short, na.rm = TRUE)
+sd(DiFa$problematic_SMU_short, na.rm = TRUE)
+var(DiFa$problematic_SMU_short, na.rm = TRUE)
+
+mean(DiFa$life_satisfaction_rec, na.rm = TRUE)
+sd(DiFa$life_satisfaction_rec, na.rm = TRUE)
+
+##Full PSMU scale
+mean(DiFa$problematic_SMU, na.rm = TRUE)
+sd(DiFa$problematic_SMU, na.rm = TRUE)
+var(DiFa$problematic_SMU, na.rm = TRUE)
+
+table(DiFa$problematic_SMU_short)
+table(DiFa$problematic_SMU)
+
+```
+
+##Correlation LS and PSMU
+```{r}
+#Correlation matrix + significances
+cor.DiFa <- DiFa %>% 
+  dplyr::select(life_satisfaction_rec, problematic_SMU_short) %>% 
+  na.omit()
+
+rcorr(as.matrix(cor.DiFa))
+
+cor.test(DiFa$life_satisfaction_rec, DiFa$problematic_SMU, method = "pearson")
+
+```
+
+```{r}
+# Calculate means and standard deviations for DiFa dataframe
+mean_life_satisfaction_rec <- mean(DiFa$life_satisfaction_rec, na.rm = TRUE)
+mean_problematic_SMU_short <- mean(DiFa$problematic_SMU_short, na.rm = TRUE)
+mean_age <- mean(DiFa$age, na.rm = TRUE)
+mean_gender <- mean(DiFa$gender, na.rm = TRUE)
+
+sd_life_satisfaction_rec <- sd(DiFa$life_satisfaction_rec, na.rm = TRUE)
+sd_problematic_SMU_short <- sd(DiFa$problematic_SMU_short, na.rm = TRUE)
+sd_gender <- sd(DiFa$age, na.rm = TRUE)
+sd_gender <- sd(DiFa$gender, na.rm = TRUE)
+
+# Print the results in a tibble
+means_and_sds <- tibble(
+  Variable = c("life_satisfaction_rec", "problematic_SMU_short", "age", "AV3"),
+  Mean = c(mean_life_satisfaction_rec, mean_problematic_SMU_short, mean_age, mean_gender),
+  SD = c(sd_life_satisfaction_rec, sd_problematic_SMU_short, sd_age, sd_gender)
+)
+
+print(means_and_sds)
+
+
+
+# Select the relevant columns for correlation analysis
+cor_DiFa <- DiFa %>%
+  dplyr::select(problematic_SMU_short, life_satisfaction_rec, age, gender)
+
+cor_DiFa <- cor_DiFa %>%
+  mutate(gender_num = ifelse(gender == "male", 1, ifelse(gender == "female", 0, NA)))
+
+# Convert all columns to numeric, handling lists and factors
+cor_DiFa_clean <- cor_DiFa %>%
+  mutate(across(everything(), ~ as.numeric(as.character(.)))) %>%
+  mutate(across(everything(), ~ ifelse(is.na(.) | is.nan(.) | is.infinite(.), mean(., na.rm = TRUE), .)))
+
+# Compute the correlation matrix
+cor_matrix <- cor(cor_DiFa_clean, use = "pairwise.complete.obs")
+rcorr_matrix <- Hmisc::rcorr(as.matrix(cor_DiFa_clean))
+
+# Convert the correlation matrix to a data frame
+cor_df <- as.data.frame(round(rcorr_matrix$r, 2))
+cor_df$Variable <- rownames(cor_df)
+
+# Print the correlation matrix
+print(cor_df)
+
+
+
+
+
+```
+
+```{r}
+# Select the relevant variables from DiFa dataframe
+cors <- c("problematic_SMU_short", "life_satisfaction_rec", "age", "gender")
+subset_cors <- DiFa[, cors, drop = FALSE]
+
+subset_cors <- subset_cors %>%
+  na.omit()
+
+subset_cors <- subset_cors %>%
+  mutate(gender = ifelse(gender == "male", 1, ifelse(gender == "female", 0, NA)))
+
+# Convert all columns to numeric, handling lists and factors
+subset_cors <- subset_cors %>%
+  mutate(across(everything(), ~ as.numeric(as.character(.)))) %>%
+  mutate(across(everything(), ~ ifelse(is.na(.) | is.nan(.) | is.infinite(.), mean(., na.rm = TRUE), .)))
+
+# Generate correlation matrix
+cor_matrix <- cor(subset_cors, use = "pairwise.complete.obs")
+
+# Calculate correlation using Hmisc::rcorr
+rcorr_matrix <- Hmisc::rcorr(as.matrix(subset_cors))
+
+# Generate correlation table
+tab_corr(subset_cors,
+         triangle = "lower",
+         digits = 2,
+         file = "Correlation_Table_DiFa.doc")
+
+```
+
+
+##ICC
+```{r}
+ICCest(fam_id, problematic_SMU, data = DiFa)
+
+ICCest(fam_id, life_satisfaction_rec, data = DiFa)
+
+```
+
+#Merged data
+##Merging datasets
+```{r}
+#In both datasets --> create ill/not ill variable
+DiFa <- DiFa %>% 
+  add_column(illness_presence = 0)
+
+DiFa$illness_presence <- as.character(DiFa$illness_presence)
+DiFa$illness_presence <- case_when(DiFa$illness_presence == "0" ~ "Healthy")
+
+PROactive <- PROactive %>% 
+  add_column(illness_presence = 1)
+
+PROactive$illness_presence <- as.character(PROactive$illness_presence)
+PROactive$illness_presence <- case_when(PROactive$illness_presence == "1" ~ "Chronically Ill")
+
+##Removing participants who did not fill out QoL.
+
+
+#Making new columns with DiFa PSMU names matching PROactive
+DiFa <- DiFa %>% 
+  mutate(
+    PSMU1 = AV16_1,
+    PSMU2 = AV16_2,
+    PSMU3 = AV16_3,
+    PSMU4 = AV16_5,
+    PSMU5 = AV16_7 
+  )
+
+#Making new datasets with only relevant variables
+DiFa_sub <- DiFa %>% 
+  dplyr::select(participant_ID, illness_presence, age, gender, living_situation, education_group, life_satisfaction_rec, problematic_SMU_short, PSMU1, PSMU2, PSMU3, PSMU4, PSMU5)
+
+PROactive_sub <- PROactive %>% 
+  dplyr::select(participant_ID, illness_presence, age, gender, living_situation, education_group, life_satisfaction_rec, problematic_SMU_short, PSMU1, PSMU2, PSMU3, PSMU4, PSMU5)
+
+#Merging the datasets
+data <- rbind(DiFa_sub, PROactive_sub)
+
+##Pivot
+sum(is.na(data$PSMU_three))
+nrow(data)
+
+sum(is.na(PROactive_sub$PSMU_three))
+nrow(PROactive_sub)
+
+sum(is.na(PROactive_SEM$PSMU_three))
+nrow(PROactive_SEM)
+
+##PSMU groups
+data$PSMU_grp <- as.factor(data$problematic_SMU_short)
+data$PSMU_grp <- case_when(
+  data$PSMU_grp == "0" ~ "No risk",
+  data$PSMU_grp == "1" ~ "No risk",
+  data$PSMU_grp == "2" ~ "Risk",
+  data$PSMU_grp == "3" ~ "Risk",
+  data$PSMU_grp == "4" ~ "Risk",
+  data$PSMU_grp == "5" ~ "Risk"
+)
+
+#Numeric gender variable
+data$gender.num <- as.character(data$gender)
+data$gender.num <- case_when(
+  data$gender.num == "female" ~ "0",
+  data$gender.num == "male" ~ "1"
+)
+data$gender.num <- as.numeric(data$gender.num)
+
+
+
+```
+
+##Cronbach's alpha
+```{r}
+cba.psmu.data <- data[c("PSMU1", "PSMU2", "PSMU3", "PSMU4", "PSMU5")]
+cronbach.alpha(cba.psmu.data, na.rm = TRUE)
+
+cba.psmu.DiFa.five <- DiFa[c("PSMU1", "PSMU2", "PSMU3", "PSMU4", "PSMU5")]
+cronbach.alpha(cba.psmu.DiFa.five, na.rm = TRUE)
+
+cba.psmu.PROactive.five <- PROactive[c("PSMU1", "PSMU2", "PSMU3", "PSMU4", "PSMU5")]
+cronbach.alpha(cba.psmu.PROactive.five, na.rm = TRUE)
+
+#Ordinal alpha both samples
+polychoric(cba.psmu.data) 
+polychoric.data <- polychoric(cba.psmu.data) 
+alpha(polychoric.data$rho)
+
+#Ordinal alpha PROactive
+polychoric(cba.psmu.PROactive.five) #This provides the polychoric correlation matrix. 
+
+polychoric.PROactive <- polychoric(cba.psmu.PROactive.five) #This saves the polychoric correlation matrix, and corresponding tau values.
+
+alpha(polychoric.PROactive$rho) #This provides (raw and standardized) alpha, and corresponding item statistics, based on the data set or matrix that is specified in the brackets.  In the output of this calculation, alpha represents ordinal alpha, because it is based on the polychoric correlation matrix.
+
+guttman(polychoric.PROactive$rho) #This provides alternative estimates of reliability for the data matrix that is specified in brackets (i.e., examplename$rho). In the R output, these estimates are labeled as beta, Guttman bounds L1, L2, L3 (alpha), L4 (max), L5, L6 (smc), TenBerge bounds mu0, mu1, mu2, mu3, alpha of the first PC (=principal component), and the “estimated greatest lower bound based upon communalities”. Since the specified data matrix is, in this case, a polychoric correlation matrix, all the reliability estimates represent ordinal versions.
+
+omega(polychoric.PROactive$rho) # This provides the ordinal versions of the reliability coefficients omega (hierarchical, asymptotic, and total, because their calculation is based on the polychoric correlation matrix).
+
+
+#Ordinal alpha DiFa
+polychoric(cba.psmu.DiFa.five) 
+polychoric.DiFa <- polychoric(cba.psmu.DiFa.five) 
+alpha(polychoric.DiFa$rho) 
+
+```
+
+
+##Testing assumptions
+###Assumptions t-test
+```{r}
+#Outliers
+data %>% 
+  group_by(illness_presence) %>% 
+  identify_outliers(problematic_SMU_short)
+
+data %>% 
+  group_by(illness_presence) %>% 
+  identify_outliers(life_satisfaction_rec)
+
+#Normality
+ggqqplot(data, "problematic_SMU_short", facet.by = "illness_presence") +
+  ggtitle("PSMU")
+
+ggqqplot(data, "life_satisfaction_rec", facet.by = "illness_presence") +
+  ggtitle("Life Satisfaction")
+
+#Equality of variances
+data %>% 
+  levene_test(problematic_SMU_short ~ illness_presence)
+
+data %>% 
+  levene_test(life_satisfaction_rec ~ illness_presence)
+
+```
+
+#### Regression - DiFa
+```{r}
+#DiFa
+DiFa.regression <- lm(life_satisfaction_rec ~ problematic_SMU_short, data = DiFa)
+
+par(mfrow = c(2,2))
+plot(DiFa.regression)
+
+#PROactive
+PROactive.regression <- lm(life_satisfaction_rec ~ problematic_SMU_short, data = PROactive)
+
+par(mfrow = c(2,2))
+plot(PROactive.regression)
+
+```
+
+#### Regression - PROactive SEM
+```{r}
+## First model
+SEM.regression <- lm(p_tot ~ PSMU_C + IP_C + PSMU_C*IP_C, data = PROactive_SEM)
+
+par(mfrow = c(2,2))
+plot(SEM.regression)
+
+olsrr::ols_vif_tol(SEM.regression)
+```
+
+##Analyses
+### T-tests
+```{r}
+#PSMU
+t.test(problematic_SMU_short ~ illness_presence, data = data, var.equal = TRUE)
+cohens_d(data, problematic_SMU_short ~ illness_presence)
+
+#Life Satisfaction
+t.test(life_satisfaction_rec ~ illness_presence, data = data, var.equal = TRUE)
+cohens_d(data, life_satisfaction_rec ~ illness_presence)
+
+```
+
+### Moderated regression
+```{r}
+#Tijdens onze meeting gaf je aan eerst een regressie met alleen IV en DV te doen, daarna een tweede regressie met daarin ook de moderator en interactie toegevoegd. Bij deze: 
+library(lm.beta)
+
+#Making dummy variables
+data <- data %>% 
+  mutate(illness_presence_dummy = case_when(illness_presence == 'Healthy' ~ 1,
+                                            illness_presence == 'Chronically Ill' ~ 0))
+#1
+MR0.INA.1.AG <- lm(life_satisfaction_rec ~ problematic_SMU_short, data)
+summary(MR0.INA.1.AG)  # For unstandardized coefficients
+confint(MR0.INA.1.AG, level = 0.95)  # Confidence intervals for unstandardized coefficients
+
+# Get standardized coefficients
+MR0.INA.1.AG_standardized <- lm.beta(MR0.INA.1.AG)
+summary(MR0.INA.1.AG_standardized)
+
+#2
+MR1.INA.1.AG <- lm(life_satisfaction_rec ~ problematic_SMU_short + age + gender.num, data)
+summary(MR1.INA.1.AG)  # For unstandardized coefficients
+confint(MR1.INA.1.AG, level = 0.95)  # Confidence intervals for unstandardized coefficients
+
+# Get standardized coefficients
+MR1.INA.1.AG_standardized <- lm.beta(MR1.INA.1.AG)
+summary(MR1.INA.1.AG_standardized)
+
+
+#3
+MR2.INA.AG <- lm(life_satisfaction_rec ~ problematic_SMU_short + illness_presence_dummy + problematic_SMU_short*illness_presence_dummy + age + gender.num, data)
+summary(MR2.INA.AG)
+confint(MR2.INA.AG, level = 0.95)
+
+MR2.INA.AG_standardized <- lm.beta(MR2.INA.AG)
+summary(MR2.INA.AG_standardized)
+confint(MR2.INA.AG_standardized)
+
+```
+
+###APA figure
+```{r}
+#Making graph APA
+data <- data %>% 
+  mutate(psmu_grp_apa = case_when(PSMU_grp == 'No risk' ~ 'Not-At-Risk',
+                                  PSMU_grp == 'Risk' ~ 'At-Risk'))
+
+data %>% 
+  filter(! participant_ID == 'D16102') %>% 
+  ggline(x = "psmu_grp_apa", 
+         y = "life_satisfaction_rec", 
+         color = "illness_presence", 
+         palette = "grey", 
+         xlab = "Social Media Use Group", 
+         ylab = "Mean Life Satisfaction", 
+         add = "mean_se", na.rm = TRUE,
+         point.size = 2,
+         shape = "illness_presence") +
+  theme(axis.text=element_text(size=14, family = "Times New Roman"),
+        axis.title=element_text(size=16, family = "Times New Roman"),
+        legend.position = c(0.7, 0.8),
+        legend.title = element_blank(),
+        legend.text = element_text(size=14, family = "Times New Roman"))
+
+```

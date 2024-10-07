@@ -1,0 +1,407 @@
+---
+title: "Final SEM"
+author: "Hannah van Steenis"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Libraries
+```{r}
+library(jmv)#EFA
+library(car) #For two-way ANOVA
+library(corrr) #Correlation matrix
+library(dplyr)
+library(extrafont)#font in apa plot
+library(ggplot2)
+library(ggpubr) #qq plots
+library(haven) #Reading SPSS file
+library(Hmisc) #Correlation matrix
+library(ICC) #for the ICC
+library(lavaan)
+library(lsr) ##for partial eta squared
+library(ltm) #Cronbach's alpha
+library(naniar) #NA replacement
+library(rstatix)#identifying outliers
+library(tidyr)
+library(tidyverse)
+
+```
+
+#QoL - EFA
+```{r}
+jmv::efa(
+    data = PROactive,
+    vars = vars(friend_support1, friend_support2, friend_support3, friend_support4),
+    nFactorMethod = "eigen",
+    extraction = "ml")
+```
+
+#QoL - CFA
+```{r}
+QoL <- ' lich =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+         emo =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+         soci =~ P_V14 + P_V15 + P_V16 + P_V17 + P_V18
+         school =~ P_V19 + P_V20 + P_V21 + P_V22 + P_V23'
+
+# fit the model
+fit.cfa <- sem(QoL, data = PROactive_SEM, std.lv = TRUE, estimator = "MLM")
+
+# display summary output
+summary(fit.cfa, fit.measures = TRUE, rsquare = TRUE)
+
+# Modification indices
+mi.qol <- modificationIndices(fit.cfa, minimum.value = 20, sort. = TRUE)
+mi.qol
+
+#Factor loadings
+inspect(fit.cfa,what="std")$lambda
+
+#Model fit indices
+mi.cfa <- modificationIndices(fit.cfa, minimum.value = 20, sort. = TRUE)
+mi.cfa
+
+```
+
+#QoL - Full model
+```{r}
+SEM.model.all <- '
+# measurement model
+LICH =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+EMO =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+SOCI =~ P_V14 + P_V15 + P_V16 + P_V17 + P_V18
+SCHOOL =~  P_V19 + P_V20 + P_V21 + P_V22 + P_V23
+QOL =~ LICH + EMO + SOCI + SCHOOL
+
+# regressions
+QOL ~ PSMU_C 
+QOL ~ IP_C 
+QOL ~ PSMU_C:IP_C
+
+'
+fit.SEM.all <- sem(SEM.model.all, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.SEM.all, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+#Only measures of model fit
+fitmeasures(fit.SEM.all, c("cfi", "tli", "rmsea", "rmsr", "chisq", "df"))
+
+inspect(fit.SEM.all,what="std")$lambda
+
+```
+
+#QoL - Trimmed model
+```{r}
+SEM.model <- '
+# measurement model
+LICH =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+EMO =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+SOCI =~ P_V14 + P_V15 + P_V17 + P_V18
+SCHOOL =~  P_V19 + P_V20 + P_V21 
+QOL =~ LICH + EMO + SOCI + SCHOOL
+
+##QoL items 16, 22 and 23 were removed. Residuals correlations were added.
+
+# regressions
+QOL ~ PSMU_C 
+QOL ~ IP_C 
+QOL ~ PSMU_C:IP_C
+
+# residual correlations
+P_V02	~~	P_V03
+P_V05	~~	P_V06
+P_V15	~~	P_V16
+'
+
+set.seed(123)
+fit.SEM <- sem(SEM.model, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.SEM, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE, fmi = TRUE)
+
+
+fit.SEM.gpt <- sem(SEM.model, data = PROactive_SEM, se = 'standard')
+summary(fit.SEM.gpt, fit.measures = TRUE, rsquare = TRUE, 
+        standardized = TRUE, ci = TRUE, modindices = TRUE)
+
+
+#Only measures of model fit
+fitmeasures(fit.SEM, c("cfi", "tli", "rmsea", "rmsr", "chisq", "df"))
+
+#semPaths(fit.SEM, what =  "stand")
+
+#Factor loadings
+inspect(fit.SEM,what="std")$lambda
+
+?inspect
+
+#Model fit indices
+mi.SEM <- modificationIndices(fit.SEM, minimum.value = 20, sort. = TRUE)
+mi.SEM
+
+```
+
+#QoL - Direct Effect
+```{r}
+SEM.model.qol.direct <- '
+# measurement model
+LICH =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+EMO =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+SOCI =~ P_V14 + P_V15 + P_V16 + P_V17 + P_V18
+SCHOOL =~  P_V19 + P_V20 + P_V21 + P_V22 + P_V23
+QOL =~ LICH + EMO + SOCI + SCHOOL
+
+# regressions
+QOL ~ PSMU_C
+QOL ~ age
+QOL ~ gender
+'
+set.seed(123)
+SEM.model.qol.direct <- sem(SEM.model.qol.direct, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(SEM.model.qol.direct, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+#Only measures of model fit
+fitmeasures(SEM.model.qol.direct, c("cfi", "tli", "rmsea", "rmsr", "chisq", "df"))
+
+inspect(SEM.model.qol.direct,what="std")$lambda
+```
+
+#QoL - Including moderator
+```{r}
+SEM.model.qol.mod <- '
+# measurement model
+LICH =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+EMO =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+SOCI =~ P_V14 + P_V15 + P_V16 + P_V17 + P_V18
+SCHOOL =~  P_V19 + P_V20 + P_V21 + P_V22 + P_V23
+QOL =~ LICH + EMO + SOCI + SCHOOL
+
+# regressions
+QOL ~ PSMU_C 
+QOL ~ IP_C 
+QOL ~ PSMU_C:IP_C
+QOL ~ age
+QOL ~ gender
+'
+
+set.seed(123)
+SEM.model.qol.mod <- sem(SEM.model.qol.mod, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(SEM.model.qol.mod, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+#Only measures of model fit
+fitmeasures(SEM.model.qol.mod, c("cfi", "tli", "rmsea", "rmsr", "chisq", "df"))
+
+inspect(SEM.model.qol.mod,what="std")$lambda
+```
+
+#Physical - Direct Effect
+```{r}
+SEM.lich <-
+'
+#Measurement model
+LICH =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+
+#Direct effect
+LICH ~ PSMU_C
+LICH ~ age
+LICH ~ gender
+'
+
+set.seed(123)
+fit.lich <- sem(SEM.lich, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.lich, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+parameterEstimates(fit.lich)
+
+#Model fit measures
+fitmeasures(fit.lich, c("cfi", "tli", "rmsea"))
+
+```
+
+#Physical - Including moderator
+```{r}
+SEM.lich.mod <-
+'
+#Measurement model
+LICH =~ P_V01 + P_V02 + P_V03 + P_V04 + P_V05 + P_V06 + P_V07 + P_V08
+
+#Direct effect
+LICH ~ PSMU_C
+
+#Interaction
+LICH ~ IP_C 
+LICH ~ PSMU_C:IP_C
+LICH ~ age
+LICH ~ gender
+'
+
+set.seed(123)
+fit.lich.mod <- sem(SEM.lich.mod, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.lich.mod, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+parameterEstimates(fit.lich.mod)
+
+#Model fit measures
+fitmeasures(fit.lich.mod, c("cfi", "tli", "rmsea"))
+
+```
+#Emotional - Direct Effect
+```{r}
+SEM.emo <-
+'
+#Measurement model
+EMO =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+
+#Direct effect
+EMO ~ PSMU_C
+EMO ~ age
+EMO ~ gender
+'
+set.seed(123)
+fit.emo <- sem(SEM.emo, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.emo, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+parameterEstimates(fit.emo)
+
+#Model fit measures
+fitmeasures(fit.emo, c("cfi", "tli", "rmsea"))
+
+#Modification indices
+mi.emo <- modificationIndices(fit.emo, minimum.value = 20, sort. = TRUE)
+mi.emo
+
+```
+
+#Emotional - Including moderator
+```{r}
+SEM.emo.mod <-
+'
+#Measurement model
+EMO =~ P_V09 + P_V10 + P_V11 + P_V12 + P_V13
+
+#Direct effect
+EMO ~ PSMU_C
+
+#Interaction
+EMO ~ IP_C 
+EMO ~ PSMU_C:IP_C
+EMO ~ age
+EMO ~ gender
+'
+set.seed(123)
+fit.emo.mod <- sem(SEM.emo.mod, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.emo.mod, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+parameterEstimates(fit.emo.mod)
+
+#Model fit measures
+fitmeasures(fit.emo, c("cfi", "tli", "rmsea"))
+
+#Modification indices
+mi.emo <- modificationIndices(fit.emo, minimum.value = 20, sort. = TRUE)
+mi.emo
+
+```
+
+#Social - Direct Effect
+```{r}
+SEM.soci <-
+'
+#Measurement model
+SOCI =~ P_V14 + P_V15 + P_V16 + P_V17 + P_V18
+
+#Direct effect
+SOCI ~ PSMU_C
+SOCI ~ age
+SOCI ~ gender
+'
+set.seed(123)
+fit.soci <- sem(SEM.soci, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.soci, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+parameterEstimates(fit.soci)
+
+#Model fit measures
+fitmeasures(fit.soci, c("cfi", "tli", "rmsea"))
+
+#Modification indices
+mi.soci <- modificationIndices(fit.emo, minimum.value = 20, sort. = TRUE)
+mi.soci
+
+```
+
+#Social - Including moderator
+```{r}
+SEM.soci.mod <-
+'
+#Measurement model
+SOCI =~ P_V14 + P_V15 + + P_V16 + P_V17 + P_V18
+
+#Direct effect
+SOCI ~ c*PSMU_C
+
+#Interaction
+SOCI ~ IP_C 
+SOCI ~ PSMU_C:IP_C
+SOCI ~ age
+SOCI ~ gender
+'
+set.seed(123)
+fit.soci.mod <- sem(SEM.soci.mod, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.soci.mod, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+parameterEstimates(fit.soci.mod)
+
+#Model fit measures
+fitmeasures(fit.soci.mod, c("cfi", "tli", "rmsea"))
+
+```
+
+#School - Direct Effect
+```{r}
+SEM.school <-
+'
+#Measurement model
+SCHOOL =~ P_V19 + P_V20 + P_V21 + P_V22
+
+#Direct effect
+SCHOOL ~ PSMU_C
+SCHOOL ~ age
+SCHOOL ~ gender
+'
+set.seed(123)
+fit.school <- sem(SEM.school, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.school, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+parameterEstimates(fit.school)
+
+#Model fit measures
+fitmeasures(fit.school, c("cfi", "tli", "rmsea"))
+
+```
+
+#School - Including moderator
+```{r}
+SEM.school.mod <-
+'
+#Measurement model
+SCHOOL =~ P_V19 + P_V20 + P_V21 + P_V22
+
+#Direct effect
+SCHOOL ~ c*PSMU_C
+
+#Interaction
+SCHOOL ~ IP_C 
+SCHOOL ~ PSMU_C:IP_C
+SCHOOL ~ age
+SCHOOL ~ gender
+'
+set.seed(123)
+fit.school.mod <- sem(SEM.school.mod, data = PROactive_SEM, se = 'boot', bootstrap = 1000)
+summary(fit.school.mod, fit.measures = TRUE, rsquare = TRUE, stand = TRUE, ci = TRUE)
+
+parameterEstimates(fit.school.mod)
+
+#Model fit measures
+fitmeasures(fit.school.mod, c("cfi", "tli", "rmsea"))
+
+#Modification indices
+mi.school.mod <- modificationIndices(fit.school.mod, minimum.value = 20, sort. = TRUE)
+mi.school.mod
+```
