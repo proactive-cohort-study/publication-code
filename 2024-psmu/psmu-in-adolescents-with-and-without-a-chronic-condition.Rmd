@@ -1,6 +1,6 @@
 ---
 title: "Code - Excluding SEM"
-author: "Hannah van Steenis"
+author: "Anonymous"
 date: "`r Sys.Date()`"
 output: html_document
 ---
